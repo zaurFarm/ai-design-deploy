@@ -12,5 +12,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Deploy
-        run: echo done
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+          
+      - name: Build application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://moskomp.ru/api
+          
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Deploy to server
+        run: |
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "systemctl stop moskomp-frontend || true"
+          scp -r -o StrictHostKeyChecking=no .next ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/moskomp.ru/ai-design/
+          scp -r -o StrictHostKeyChecking=no public ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/moskomp.ru/ai-design/
+          scp -o StrictHostKeyChecking=no package.json package-lock.json ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/moskomp.ru/ai-design/
+          scp -o StrictHostKeyChecking=no next.config.js ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/moskomp.ru/ai-design/
+          scp -r -o StrictHostKeyChecking=no app ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/moskomp.ru/ai-design/
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "systemctl restart moskomp-frontend"
+          
+      - name: Verify deployment
+        run: |
+          sleep 5
+          curl -f -s -o /dev/null -w "%{http_code}" https://moskomp.ru/chat
